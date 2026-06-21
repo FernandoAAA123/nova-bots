@@ -276,6 +276,10 @@ document.addEventListener('firebase-ready',()=>{
     listenMessages();
     setStatus('Listo — selecciona un servidor y canal');
     addLog('system','PanDex Bot iniciado. Esperando comandos /mine...');
+    // Heartbeat de presencia cada 25s
+    setInterval(()=>{ if(botActive) setOnlinePresence(); },25000);
+    // Limpiar presencia al cerrar
+    window.addEventListener('beforeunload',()=>{ fbRemove('presence/bot_pandex'); });
   });
 });
 
@@ -339,16 +343,66 @@ async function saveConfig(){
     breaddexEnabled:document.getElementById('bot-toggle').classList.contains('on'),
     breaddexChannel:selectedChannelId,
   });
+  // Register bot as server member if not already there
+  await registerBotAsMember(selectedServerId);
   showToast('✅ Configuración guardada');
   addLog('success','Configuración guardada en Firebase.');
+}
+
+async function registerBotAsMember(srvId){
+  const srvSnap=await fbGet('state/servers');
+  if(!srvSnap.exists())return;
+  const val=srvSnap.val();
+  const servers=Array.isArray(val)?val:Object.values(val||{});
+  const srv=servers.find(s=>s.id===srvId);
+  if(!srv)return;
+  if(!srv.members)srv.members=[];
+  const already=srv.members.find(m=>(m.uid||m.id)==='bot_pandex');
+  if(!already){
+    srv.members.push({
+      uid:'bot_pandex',id:'bot_pandex',
+      name:'PanDex',
+      avatarUrl:BOT_AVATAR,
+      avatarColor:'#f59e0b',
+      color:'#f59e0b',
+      roles:['BOT'],
+      isBot:true,
+      botDescription:'Bot de panes de Breadwinners. Usa /mine para descubrir panes y /breaddex para ver tu colección.',
+      botCommands:['/mine — Descubrir un pan misterioso','/breaddex — Ver tu colección','/mine moldy — Reclamar pan mohoso'],
+    });
+    await fbSet('state/servers',servers);
+    addLog('success','PanDex registrado como miembro del servidor.');
+  }
+}
+
+async function setOnlinePresence(){
+  const presRef=fbRef('presence/bot_pandex');
+  await window._fbSet(presRef,{
+    uid:'bot_pandex',name:'PanDex',
+    avatarUrl:BOT_AVATAR,avatarColor:'#f59e0b',
+    status:'online',customStatus:'Minando panes...',
+    isBot:true,ts:Date.now(),
+  });
+  window._fbOnDisconnect(presRef).remove();
+}
+
+async function removePresence(){
+  await fbRemove('presence/bot_pandex');
 }
 
 function toggleBot(){
   const t=document.getElementById('bot-toggle');
   t.classList.toggle('on');
   botActive=t.classList.contains('on');
-  if(botActive){setStatus('Activo — escuchando comandos /mine');addLog('success','¡Bot activado!');}
-  else{setStatus('En pausa');addLog('warn','Bot en pausa.');}
+  if(botActive){
+    setOnlinePresence();
+    setStatus('Activo — escuchando comandos /mine');
+    addLog('success','¡Bot activado!');
+  }else{
+    removePresence();
+    setStatus('En pausa');
+    addLog('warn','Bot en pausa.');
+  }
 }
 
 let _listenedChannels=new Set();
