@@ -8,7 +8,8 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getDatabase, ref, set, get, onValue, push, remove, update, onChildAdded, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-  import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged }
+  import { getAuth, signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword,
+    signOut, onAuthStateChanged, setPersistence, browserLocalPersistence }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   const firebaseConfig = {
     apiKey:"AIzaSyAjI362VY6rzQ2mIqdMBt7qBXV1peW3LEM",
@@ -23,12 +24,16 @@
   const auth=getAuth(app);
   const db=getDatabase(app);
   const provider=new GoogleAuthProvider();
+  // Misma persistencia que Nova: comparte la sesión entre pestañas del mismo navegador
+  // en vez de pisarla — sin esto, abrir/cerrar Nova y este bot se cerraban la sesión entre sí.
+  setPersistence(auth, browserLocalPersistence).catch(()=>{});
   window._db=db;window._auth=auth;
   window._fbRef=ref;window._fbSet=set;window._fbGet=get;
   window._fbOnValue=onValue;window._fbPush=push;
   window._fbRemove=remove;window._fbUpdate=update;
   window._fbOnChildAdded=onChildAdded;
-  window._fbSignIn=()=>signInWithPopup(auth,provider);
+  window._fbSignInGoogle=()=>signInWithPopup(auth,provider);
+  window._fbSignInEmail=(e,p)=>signInWithEmailAndPassword(auth,e,p);
   window._fbSignOut=()=>signOut(auth);
   window._fbOnAuth=(cb)=>onAuthStateChanged(auth,cb);
   window._firebaseReady=true;
@@ -94,6 +99,8 @@ body{font-family:var(--font);background:var(--bg-0);color:var(--text-1);min-heig
 .lang-toggle{display:flex;background:var(--bg-3);border-radius:8px;padding:3px;gap:3px;margin-left:auto;}
 .lang-btn{padding:4px 10px;border:none;border-radius:6px;font-family:var(--font);font-size:.75rem;font-weight:700;cursor:pointer;background:none;color:var(--text-2);transition:all .15s;}
 .lang-btn.active{background:var(--accent);color:#000;}
+#moldy-toggle-row{display:none;}
+body.is-admin #moldy-toggle-row{display:flex;}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--bg-3);border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:.875rem;color:var(--text-0);z-index:9999;transform:translateX(120%);transition:transform .3s;}
 .toast.show{transform:translateX(0);}
 </style>
@@ -105,11 +112,22 @@ body{font-family:var(--font);background:var(--bg-0);color:var(--text-1);min-heig
     <img src="https://chibi.iitranq.co.uk/ay4HjymocGQQ.jpg" style="width:72px;height:72px;border-radius:16px;margin-bottom:12px;object-fit:cover;">
     <h1 style="font-size:1.3rem;font-weight:800;color:var(--text-0);margin-bottom:6px;">PanDex Bot</h1>
     <p style="color:var(--text-2);font-size:.85rem;margin-bottom:6px;">No hay sesión activa de Nova detectada.</p>
-    <p style="color:var(--text-3);font-size:.78rem;margin-bottom:20px;">Inicia sesión en Nova primero y luego vuelve aquí, o inicia sesión manualmente.</p>
-    <button class="btn btn-google" onclick="window._fbSignIn()" style="width:100%;">
+    <p style="color:var(--text-3);font-size:.78rem;margin-bottom:20px;">Si ya iniciaste sesión en Nova en este navegador, debería entrar solo. Si no, inicia sesión con la misma cuenta.</p>
+    <button class="btn btn-google" onclick="window._fbSignInGoogle().catch(e=>showAuthError(e.message))" style="width:100%;">
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
       Iniciar sesión con Google
     </button>
+    <div style="display:flex;align-items:center;gap:10px;margin:14px 0;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <span style="font-size:.7rem;color:var(--text-3);">o con email</span>
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;text-align:left;">
+      <input type="email" id="auth-email" placeholder="tu@email.com" style="background:var(--bg-3);border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-0);font-family:var(--font);font-size:.85rem;outline:none;width:100%;">
+      <input type="password" id="auth-pass" placeholder="Contraseña" style="background:var(--bg-3);border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text-0);font-family:var(--font);font-size:.85rem;outline:none;width:100%;" onkeydown="if(event.key==='Enter')doLoginEmail()">
+      <button class="btn btn-ghost" style="width:100%;justify-content:center;" onclick="doLoginEmail()">Iniciar sesión con email</button>
+    </div>
+    <div id="auth-error" style="color:var(--red);font-size:.78rem;margin-top:10px;display:none;"></div>
   </div>
 </div>
 
@@ -153,7 +171,7 @@ body{font-family:var(--font);background:var(--bg-0);color:var(--text-1);min-heig
             <span class="toggle-label">PanDex activo</span>
             <div class="toggle" id="bot-toggle" onclick="toggleBot()"></div>
           </div>
-          <div class="toggle-row">
+          <div class="toggle-row" id="moldy-toggle-row">
             <span class="toggle-label">Pan mohoso (fallback 3h)</span>
             <div class="toggle on" id="moldy-toggle" onclick="this.classList.toggle('on')"></div>
           </div>
@@ -200,6 +218,8 @@ body{font-family:var(--font);background:var(--bg-0);color:var(--text-1);min-heig
 </div>
 
 <script>
+// ⚠️ Tu UID de Firebase Auth — solo tú ves la configuración avanzada de spawn (pan mohoso, etc.)
+const ADMIN_UID = 'DpGqEhYwhpcMCAZgpCMz6cBtNo23';
 const RARITY_ICONS={common:'○',uncommon:'◉',rare:'◈',epic:'◆',legendary:'★'};
 const RARITY_WEIGHTS={common:50,uncommon:25,rare:15,epic:8,legendary:2};
 const SPAWN_TIMEOUT=30*1000;
@@ -266,6 +286,19 @@ function fbRemove(p){return window._fbRemove(fbRef(p));}
 function fbOn(p,cb){return window._fbOnValue(fbRef(p),cb);}
 function fbOnChild(p,cb){return window._fbOnChildAdded(fbRef(p),cb);}
 
+function showAuthError(msg){
+  const e=document.getElementById('auth-error');
+  if(!e)return;
+  e.textContent=msg;e.style.display='block';
+}
+async function doLoginEmail(){
+  const email=document.getElementById('auth-email').value.trim();
+  const pass=document.getElementById('auth-pass').value;
+  if(!email||!pass){showAuthError('Escribe tu email y contraseña.');return;}
+  try{ await window._fbSignInEmail(email,pass); }
+  catch(e){ showAuthError('No se pudo iniciar sesión. Revisa tu email y contraseña.'); }
+}
+
 document.addEventListener('firebase-ready',()=>{
   window._fbOnAuth(async user=>{
     if(!user){
@@ -277,6 +310,7 @@ document.addEventListener('firebase-ready',()=>{
     document.getElementById('auth-screen').style.display='none';
     document.getElementById('app').classList.add('visible');
     document.getElementById('topbar-user').textContent=user.displayName||user.email;
+    if(user.uid===ADMIN_UID) document.body.classList.add('is-admin');
     await loadBreads();
     await loadServers();
     listenMessages();
@@ -295,18 +329,14 @@ async function autoActivate(){
   const cfgSnap=await fbGet('botdata/servers');
   if(!cfgSnap.exists())return;
   const configs=cfgSnap.val();
-  // Find first server with breaddex enabled
-  const entry=Object.values(configs).find(c=>c.breaddexEnabled&&c.breaddexChannel);
+  // Match by serverId (not name) to avoid collision if two servers share a name
+  const entry=Object.values(configs).find(c=>c.breaddexEnabled&&c.breaddexChannel&&allServers.some(s=>s.id===c.serverId||allServers.some(ss=>ss.name===c.name)));
   if(!entry)return;
-  // Find the server in allServers
-  const srv=allServers.find(s=>s.name===entry.name||Object.values(configs).some(c=>c.name===s.name));
-  // Set selections
-  const srvMatch=allServers.find(s=>s.name===entry.name);
-  if(srvMatch){
-    selectedServerId=srvMatch.id;
-    document.getElementById('server-select').value=srvMatch.id;
-    onServerSelect(srvMatch.id, entry.breaddexChannel);
-  }
+  const srvMatch=allServers.find(s=>s.id===entry.serverId)||allServers.find(s=>s.name===entry.name);
+  if(!srvMatch)return;
+  selectedServerId=srvMatch.id;
+  document.getElementById('server-select').value=srvMatch.id;
+  onServerSelect(srvMatch.id, entry.breaddexChannel);
   selectedChannelId=entry.breaddexChannel;
   document.getElementById('channel-select').value=entry.breaddexChannel;
   document.getElementById('bot-toggle').classList.add('on');
@@ -326,18 +356,27 @@ async function loadServers(){
   const snap=await fbGet('state/servers');
   if(!snap.exists()){addLog('warn','No se encontraron servidores.');return;}
   const val=snap.val();
-  allServers=Array.isArray(val)?val:Object.values(val||{});
+  const uid=window._auth?.currentUser?.uid;
+  const all=Array.isArray(val)?val:Object.values(val||{});
+  // Solo servidores donde el usuario actual es dueño o admin — evita que distintas
+  // personas que abren este bot se pisen activando/reactivando el servidor de otra.
+  allServers=all.filter(srv=>{
+    const mem=(srv.members||[]).find(m=>(m.uid||m.id)===uid);
+    if(!mem)return false;
+    if(srv.ownerId===uid)return true;
+    return (mem.roles||[]).includes('Admin');
+  });
   const sel=document.getElementById('server-select');
   allServers.forEach(s=>{
     const opt=document.createElement('option');
     opt.value=s.id;opt.textContent=(s.icon||'🖥️')+' '+s.name;
     sel.appendChild(opt);
   });
-  addLog('info',`${allServers.length} servidores encontrados.`);
+  addLog('info',`${allServers.length} de tus servidores encontrados.`);
   const cfg=await fbGet('botdata/servers');
   if(cfg.exists()){
     Object.entries(cfg.val()).forEach(([srvId,data])=>{
-      if(data.breaddexEnabled){
+      if(data.breaddexEnabled && allServers.some(s=>s.id===srvId)){
         addLog('success',`PanDex estaba activo en "${data.name}". Reactivando...`);
         document.getElementById('server-select').value=srvId;
         onServerSelect(srvId,data.breaddexChannel);
@@ -373,6 +412,7 @@ async function saveConfig(){
   await fbSet('botdata/servers/'+selectedServerId,{
     name:srv?.name||selectedServerId,
     icon:srv?.icon||'🖥️',
+    serverId:selectedServerId,
     breaddexEnabled:document.getElementById('bot-toggle').classList.contains('on'),
     breaddexChannel:selectedChannelId,
   });
